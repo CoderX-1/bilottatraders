@@ -126,12 +126,47 @@ export function ProductDetailPage({ slug }: { slug: string }) {
   if (!product) return null;
   const productIndex = products.findIndex(item => item.slug === slug);
   const related = product.related.map(relatedSlug => products.find(item => item.slug === relatedSlug)).filter((item): item is Product => Boolean(item));
-  return <Shell><section className="product-detail wrap">
-    <div className="breadcrumb"><Link href="/products">Products</Link><span aria-hidden="true">/</span><span>{product.name}</span></div>
-    <Link className="back-link" href="/products">← Back to Products</Link>
-    <div className="product-detail-hero"><div className="product-detail-intro"><Label>{product.category.toUpperCase()} / {String(productIndex + 1).padStart(2, "0")}</Label><h1>{product.name}.</h1><p>{product.description}</p><Button href={`/contact?product=${product.slug}`}>REQUEST AN INQUIRY</Button></div><figure className="detail-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 900px) calc(100vw - 40px), 55vw" priority /><figcaption>{product.category.toUpperCase()} / GLOBAL SUPPLY</figcaption></figure></div>
-    <div className="detail-copy"><div><Label>PRODUCT OVERVIEW</Label></div><div><h2>{product.statement}</h2>{product.overview.map(paragraph => <p key={paragraph}>{paragraph}</p>)}<div className="detail-facts"><div><span>PRODUCT CATEGORY</span><strong>{product.category}</strong></div><div><span>APPLICATIONS</span><strong>{product.applications}</strong></div><div><span>SUPPLY SCOPE</span><strong>International commodity trading and reselling</strong></div><div><span>COMMERCIAL TERMS</span><strong>Confirmed upon qualified inquiry</strong></div></div><p className="detail-note">Specifications, origin, quantity and delivery terms are confirmed during a qualified inquiry.</p><Button href={`/contact?product=${product.slug}`}>REQUEST AN INQUIRY</Button></div></div>
-  </section><section className="related wrap"><div className="section-heading"><div><Label>RELATED COMMODITIES</Label><h2>CONTINUE EXPLORING.</h2></div></div><div className="related-grid">{related.map((item, index) => <ProductCard compact key={item.slug} product={item} index={index} />)}</div></section><ContactCTA /></Shell>;
+  const previous = productIndex > 0 ? products[productIndex - 1] : undefined;
+  const next = productIndex < products.length - 1 ? products[productIndex + 1] : undefined;
+  return <Shell>
+    <section className="product-detail-hero">
+      <div className="product-detail-intro">
+        <Link className="back-link" href="/products">← Back to Products</Link>
+        <div className="product-detail-meta"><Label>{product.category.toUpperCase()} / {String(productIndex + 1).padStart(2, "0")}</Label><span className="product-hero-number" aria-hidden="true">{String(productIndex + 1).padStart(2, "0")}</span></div>
+        <h1>{product.name}</h1>
+        <p>{product.description}</p>
+        <Button href={`/contact?product=${product.slug}`}>REQUEST AN INQUIRY</Button>
+      </div>
+      <figure className="detail-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 900px) 100vw, 58vw" loading="eager" /><figcaption>{product.category.toUpperCase()} / GLOBAL COMMODITY</figcaption></figure>
+    </section>
+
+    <section className="product-overview wrap">
+      <Label>PRODUCT OVERVIEW</Label>
+      <div className="product-overview-grid"><h2>{product.statement}</h2><p>{product.overview[0]}</p></div>
+    </section>
+
+    <section className="product-facts wrap" aria-label={`${product.name} commercial information`}>
+      <div><span>COMMODITY</span><strong>{product.name}</strong></div>
+      <div><span>CATEGORY</span><strong>{product.category}</strong></div>
+      <div><span>APPLICATION</span><strong>{product.applications}</strong></div>
+      <div><span>SUPPLY SCOPE</span><strong>International trading</strong></div>
+      <div><span>COMMERCIAL TERMS</span><strong>Confirmed during inquiry</strong></div>
+    </section>
+
+    <section className="product-visual-story wrap">
+      <figure><Image src={product.image} alt={`Close-up view of ${product.name}`} fill sizes="(max-width: 900px) calc(100vw - 40px), 72vw" /></figure>
+      <div><Label>COMMODITY CONTEXT</Label><h2>BUILT AROUND QUALIFIED COMMERCIAL REQUIREMENTS.</h2><p>{product.overview[1] ?? product.overview[0]}</p><p className="detail-note">Specifications, origin, quantity and delivery terms are confirmed during a qualified inquiry.</p></div>
+    </section>
+
+    <section className="product-inquiry"><div className="wrap product-inquiry-inner"><div><Label>COMMERCIAL INQUIRY</Label><h2>INTERESTED IN {product.name.toUpperCase()} SUPPLY?</h2><p>Share your commodity requirement with the Bilotta Traders team for commercial review.</p></div><Button href={`/contact?product=${product.slug}`}>START AN INQUIRY</Button></div></section>
+
+    <section className="related wrap"><div className="related-heading"><Label>RELATED COMMODITIES</Label><h2>EXPLORE THE PORTFOLIO.</h2></div><div className="related-grid">{related.map((item, index) => <ProductCard compact key={item.slug} product={item} index={index} />)}</div></section>
+
+    <nav className="product-sequence wrap" aria-label="Product navigation">
+      <div>{previous && <Link href={`/products/${previous.slug}`}><small>PREVIOUS COMMODITY</small><strong>← {previous.name}</strong></Link>}</div>
+      <div>{next && <Link href={`/products/${next.slug}`}><small>NEXT COMMODITY</small><strong>{next.name} →</strong></Link>}</div>
+    </nav>
+  </Shell>;
 }
 
 export function AboutPage() { return <Shell darkHeader><PageHero label="ABOUT / BILOTTA TRADERS GROUP" title={<>TRUST BUILT<br />ACROSS BORDERS.</>} intro="An international commodity trading and reselling firm connecting supply with global market demand." image="/images/about.webp" /><section className="about-story wrap"><div><Label>COMPANY OVERVIEW</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Headquartered in Toronto, Bilotta Traders Group maintains a presence through branch offices in Dubai, Switzerland and Germany.</p><p>Its product portfolio spans fuels, sugar, fertilizers, copper, aluminum and steel. The leadership team combines business, commodities and operational experience to support clients across international markets.</p><p>The company emphasizes long-term relationships, transparency, responsive service and the practical coordination required for cross-border commodity transactions.</p></div></section><section className="reach"><div className="wrap"><Label>GLOBAL REACH</Label><div className="reach-grid">{["Toronto / Headquarters", "Dubai / Branch Office", "Switzerland / Branch Office", "Germany / Branch Office"].map((x, i) => <div key={x}><span>0{i + 1}</span><h3>{x.split(" / ")[0]}</h3><p>{x.split(" / ")[1]}</p></div>)}</div></div></section><Leadership /><ContactCTA /></Shell>; }
