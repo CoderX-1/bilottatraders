@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import Image from "next/image";
 import { leadership, processSteps, products, type Product } from "./data";
 
 // Native anchors keep every route usable even if client-side hydration is slow
 // or unavailable in a review browser.
-function Link({ href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
-  return <a href={href} {...props} />;
+function Link({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  return <a href={href} {...props}>{children}</a>;
 }
 
 const nav = [
@@ -21,17 +23,36 @@ function Mark({ light = false }: { light?: boolean }) {
 export function Header({ dark = false }: { dark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { const fn = () => setScrolled(window.scrollY > 32); fn(); window.addEventListener("scroll", fn); return () => window.removeEventListener("scroll", fn); }, []);
-  useEffect(() => { document.body.style.overflow = open ? "hidden" : ""; return () => { document.body.style.overflow = ""; }; }, [open]);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = open ? "hidden" : previousOverflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && open) {
+        setOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    if (open) requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+  const isActive = (href: string) => href === "/products" ? pathname.startsWith("/products") : pathname === href;
   return <>
     <header className={`header ${(dark && !scrolled) ? "header-overlay" : ""} ${scrolled ? "header-scrolled" : ""}`}>
       <Mark light={dark && !scrolled} />
-      <nav className="desktop-nav" aria-label="Primary">{nav.map(([label, href], i) => <Link className={i === 4 ? "nav-cta" : ""} key={href} href={href}>{label}</Link>)}</nav>
-      <button className="menu-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open}><span /><span /></button>
+      <nav className="desktop-nav" aria-label="Primary">{nav.map(([label, href], i) => <Link className={`${i === 4 ? "nav-cta" : ""} ${isActive(href) ? "is-active" : ""}`} aria-current={isActive(href) ? "page" : undefined} key={href} href={href}>{label}</Link>)}</nav>
+      <button ref={menuButtonRef} className="menu-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} aria-controls="mobile-navigation"><span /><span /></button>
     </header>
-    <div className={`mobile-menu ${open ? "is-open" : ""}`} aria-hidden={!open}>
-      <div className="mobile-menu-top"><Mark light /><button onClick={() => setOpen(false)} aria-label="Close menu" className="menu-close">×</button></div>
-      <nav>{nav.map(([label, href], i) => <Link key={href} href={href} onClick={() => setOpen(false)}><span>{String(i + 1).padStart(2, "0")}</span>{label}</Link>)}</nav>
+    <div id="mobile-navigation" className={`mobile-menu ${open ? "is-open" : ""}`} aria-hidden={!open} role="dialog" aria-modal="true" aria-label="Mobile navigation">
+      <div className="mobile-menu-top"><Mark light /><button ref={closeButtonRef} onClick={() => { setOpen(false); menuButtonRef.current?.focus(); }} aria-label="Close menu" className="menu-close">×</button></div>
+      <nav>{nav.map(([label, href], i) => <Link className={isActive(href) ? "is-active" : ""} aria-current={isActive(href) ? "page" : undefined} key={href} href={href} onClick={() => setOpen(false)}><span>{String(i + 1).padStart(2, "0")}</span>{label}</Link>)}</nav>
       <div className="mobile-meta"><span>Toronto</span><span>Dubai</span><span>Switzerland</span><span>Germany</span></div>
     </div>
   </>;
@@ -41,17 +62,30 @@ function Arrow() { return <span aria-hidden="true" className="arrow">↗</span>;
 function Label({ children }: { children: React.ReactNode }) { return <div className="section-label">{children}</div>; }
 function Button({ href, children, outline = false }: { href: string; children: React.ReactNode; outline?: boolean }) { return <Link className={`button ${outline ? "button-outline" : ""}`} href={href}>{children}<Arrow /></Link>; }
 
-function ProductCard({ product, index, large = false }: { product: Product; index: number; large?: boolean }) {
-  const href = product.slug === "copper-cathode" ? "/products/copper-cathode" : `/contact?product=${product.slug}`;
-  return <Link href={href} className={`product-card ${large ? "product-large" : ""}`}>
-    <div className="product-image" style={{ backgroundImage: `url('${product.image}')` }}><span className="product-index">{String(index + 1).padStart(2, "0")}</span></div>
-    <div className="product-copy"><span>{product.category}</span><h3>{product.name}</h3><Arrow /></div>
+function ProductCard({ product, index, compact = false }: { product: Product; index: number; compact?: boolean }) {
+  return <Link href={`/products/${product.slug}`} aria-label={`View product: ${product.name}`} className={`product-card ${compact ? "product-card-compact" : ""}`}>
+    <div className="product-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes={compact ? "(max-width: 600px) calc(100vw - 40px), (max-width: 900px) 50vw, 33vw" : "(max-width: 600px) calc(100vw - 40px), (max-width: 900px) 50vw, 33vw"} loading={index === 0 ? "eager" : "lazy"} /><span className="product-index">{String(index + 1).padStart(2, "0")}</span></div>
+    <div className="product-copy"><span>{product.category}</span><h3>{product.name}</h3><p>{product.description}</p><small>View product</small><Arrow /></div>
   </Link>;
 }
 
-export function ProductEditorial({ limit }: { limit?: number }) {
-  const shown = limit ? products.slice(0, limit) : products;
-  return <div className="product-editorial">{shown.map((p, i) => <ProductCard key={p.slug} product={p} index={i} large={i % 5 === 0} />)}</div>;
+export function ProductCatalogue() {
+  return <div className="product-catalogue">{products.map((product, index) => <ProductCard key={product.slug} product={product} index={index} />)}</div>;
+}
+
+function HomeCommodities() {
+  const featured = products.slice(0, 6);
+  const [activeSlug, setActiveSlug] = useState(featured[0].slug);
+  const active = featured.find(product => product.slug === activeSlug) ?? featured[0];
+  return <div className="featured-products">
+    <div className="featured-product-list">{featured.map((product, index) => <Link key={product.slug} href={`/products/${product.slug}`} className={`featured-product-row ${active.slug === product.slug ? "is-active" : ""}`} onPointerEnter={() => setActiveSlug(product.slug)} onFocus={() => setActiveSlug(product.slug)}>
+      <div className="featured-mobile-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 600px) calc(100vw - 40px), 90vw" /></div>
+      <span className="featured-index">{String(index + 1).padStart(2, "0")}</span>
+      <div><small>{product.category}</small><h3>{product.name}</h3><p>{product.description}</p></div>
+      <span className="featured-action">View product <Arrow /></span>
+    </Link>)}</div>
+    <div className="featured-product-preview" aria-live="polite"><div className="featured-preview-image" key={active.slug}><Image src={active.image} alt={`${active.name} commodity`} fill sizes="(max-width: 1100px) 42vw, 560px" priority /></div><div className="featured-preview-caption"><span>{active.category}</span><strong>{active.name}</strong></div></div>
+  </div>;
 }
 
 function Leadership() {
@@ -65,31 +99,68 @@ function Network() {
 
 function ContactCTA() { return <section className="contact-cta"><div className="wrap"><Label>CONTACT</Label><h2>LET&apos;S DISCUSS YOUR<br />COMMODITY REQUIREMENTS.</h2><Button href="/contact">START A CONVERSATION</Button></div></section>; }
 
-function Newsletter() { return <section className="newsletter"><div className="wrap newsletter-inner"><div><Label>MARKET CONNECTIONS</Label><h3>Stay connected with Bilotta.</h3></div><form onSubmit={(e) => e.preventDefault()}><label className="sr-only" htmlFor="newsletter">Email address</label><input id="newsletter" type="email" placeholder="Email address" required /><button type="submit">SUBSCRIBE <Arrow /></button></form></div></section>; }
+function Newsletter() {
+  const [submitted, setSubmitted] = useState(false);
+  return <section className="newsletter"><div className="wrap newsletter-inner"><div><Label>MARKET CONNECTIONS</Label><h3>Stay connected with Bilotta.</h3></div><div><form onSubmit={(e) => { e.preventDefault(); setSubmitted(true); }}><label className="sr-only" htmlFor="newsletter">Email address</label><input id="newsletter" type="email" placeholder="Email address" required /><button type="submit">SUBSCRIBE <Arrow /></button></form>{submitted && <p className="newsletter-success" role="status">Thank you. Newsletter integration is ready for the next phase.</p>}</div></div></section>;
+}
 
-export function Footer() { return <footer><div className="wrap footer-grid"><div className="footer-brand"><Mark light /><p>Global commodity trading.<br />Built on trust. Connected worldwide.</p></div><div><h4>COMPANY</h4><Link href="/about">About</Link><Link href="/products">Products</Link><Link href="/transaction-process">Transaction Process</Link><Link href="/contact">Contact</Link><a href="https://bilottatraders.com/video-blog/">Video Blog</a></div><div><h4>PRODUCTS</h4>{products.slice(0, 6).map(p => <Link key={p.slug} href={p.slug === "copper-cathode" ? "/products/copper-cathode" : "/products"}>{p.name}</Link>)}</div><div><h4>CONTACT</h4><p>133 Bronte Road — 727<br />Oakville, Ontario L6L 0H2<br />Canada</p><a href="tel:+12892421143">+1 (289) 242-1143</a><a href="mailto:info@bilottatraders.com">info@bilottatraders.com</a></div></div><div className="wrap footer-bottom"><span>© 2026 Bilotta Traders. All rights reserved.</span><a href="https://bilottatraders.com/privacy-policy/">Privacy Policy</a><span>TORONTO · DUBAI · SWITZERLAND · GERMANY</span></div></footer>; }
+export function Footer() { return <footer><div className="wrap footer-grid"><div className="footer-brand"><Mark light /><p>Global commodity trading.<br />Built on trust. Connected worldwide.</p></div><div><h4>COMPANY</h4><Link href="/">Home</Link><Link href="/about">About</Link><Link href="/products">Products</Link><Link href="/transaction-process">Transaction Process</Link><Link href="/contact">Contact</Link><a href="https://bilottatraders.com/video-blog/">Video Blog</a></div><div><h4>PRODUCTS</h4>{products.map(p => <Link key={p.slug} href={`/products/${p.slug}`}>{p.name}</Link>)}</div><div><h4>CONTACT</h4><p>133 Bronte Road — 727<br />Oakville, Ontario L6L 0H2<br />Canada</p><a href="tel:+12892421143">+1 (289) 242-1143</a><a href="mailto:info@bilottatraders.com">info@bilottatraders.com</a></div></div><div className="wrap footer-bottom"><span>© 2026 Bilotta Traders. All rights reserved.</span><a href="https://bilottatraders.com/privacy-policy/">Privacy Policy</a><span>TORONTO · DUBAI · SWITZERLAND · GERMANY</span></div></footer>; }
 
 function Shell({ children, darkHeader = false }: { children: React.ReactNode; darkHeader?: boolean }) { return <><Header dark={darkHeader} /><main>{children}</main><Newsletter /><Footer /></>; }
 
 export function HomePage() { return <Shell darkHeader>
   <section className="hero"><div className="hero-image" /><div className="hero-grid" /><div className="hero-content wrap"><div><Label>BILOTTA TRADERS GROUP</Label><h1>GLOBAL<br />COMMODITY<br />TRADING.</h1><p>Built on Trust. Connected Worldwide.</p><div className="hero-actions"><Button href="/products">EXPLORE PRODUCTS</Button><Button href="/contact" outline>CONTACT US</Button></div></div></div><div className="hero-cities wrap">{["TORONTO", "DUBAI", "SWITZERLAND", "GERMANY"].map((x, i) => <span key={x}><i>0{i + 1}</i>{x}</span>)}</div></section>
-  <section className="commodities wrap"><div className="section-heading"><div><Label>01 / COMMODITIES</Label><h2>COMMODITIES ACROSS<br />GLOBAL MARKETS</h2></div><p>Connecting buyers and suppliers through an established international network and a focused portfolio of essential commodities.</p></div><ProductEditorial limit={6} /><div className="section-end"><Button href="/products" outline>VIEW FULL CATALOGUE</Button></div></section>
+  <section className="commodities wrap"><div className="section-heading"><div><Label>01 / COMMODITIES</Label><h2>COMMODITIES ACROSS<br />GLOBAL MARKETS</h2></div><p>Connecting buyers and suppliers through an established international network and a focused portfolio of essential commodities.</p></div><HomeCommodities /><div className="section-end"><Button href="/products" outline>VIEW FULL CATALOGUE</Button></div></section>
   <Network />
   <section className="about-preview"><div className="wrap about-grid"><div><Label>03 / ABOUT</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Bilotta Traders Group is a globally recognized commodity trading and reselling firm headquartered in Toronto, Canada, with branch offices in Dubai, Switzerland and Germany.</p><p>The company serves clients internationally with a broad professional network, focused service and experienced leadership across the commodities industry.</p><Button href="/about" outline>DISCOVER BILOTTA</Button></div></div></section>
-  <section className="process-preview wrap"><div className="section-heading"><div><Label>04 / TRANSACTION PROCESS</Label><h2>CLARITY AT<br />EVERY STAGE.</h2></div><p>A defined, mandatory procedure gives buyers and sellers a clear path from the initial ICPO or LOI through bank confirmation and shipment.</p></div><div className="process-short">{processSteps.slice(0, 4).map((step, i) => <div key={step}><span>0{i + 1}</span><p>{step}</p></div>)}</div><Button href="/transaction-process">VIEW COMPLETE PROCESS</Button></section>
+  <section className="process-preview wrap"><div className="section-heading"><div><Label>04 / TRANSACTION PROCESS</Label><h2>CLARITY AT<br />EVERY STAGE.</h2></div><p>A defined, mandatory procedure gives buyers and sellers a clear path from the initial ICPO or LOI through bank confirmation and shipment.</p></div><div className="process-short">{processSteps.slice(0, 4).map((step, i) => <div key={step.title}><span>0{i + 1}</span><h3>{step.title}</h3><p>{step.description}</p></div>)}</div><Button href="/transaction-process">VIEW COMPLETE PROCESS</Button></section>
   <ContactCTA />
  </Shell>; }
 
 function PageHero({ label, title, intro, image }: { label: string; title: React.ReactNode; intro: string; image?: string }) { return <section className="page-hero"><div className="page-hero-image" style={image ? { backgroundImage: `url('${image}')` } : undefined} /><div className="wrap page-hero-inner"><Label>{label}</Label><h1>{title}</h1><p>{intro}</p></div></section>; }
 
-export function ProductsPage() { return <Shell darkHeader><PageHero label="PRODUCTS / 01—09" title={<>GLOBAL<br />COMMODITIES.</>} intro="A focused portfolio spanning energy, agriculture and industrial metals." image="https://images.unsplash.com/photo-1578575437130-527eed3abbec?auto=format&fit=crop&w=2000&q=85" /><section className="catalogue wrap"><div className="catalogue-meta"><Label>OUR CATALOGUE</Label><p>Nine key commodity groups. One experienced international network.</p></div><ProductEditorial /></section><ContactCTA /></Shell>; }
+export function ProductsPage() { return <Shell darkHeader><PageHero label="PRODUCTS / 01—09" title={<>GLOBAL<br />COMMODITIES.</>} intro="A focused portfolio spanning energy, agriculture and industrial metals." image="/images/hero.webp" /><section className="catalogue wrap"><div className="catalogue-meta"><Label>OUR CATALOGUE</Label><p>Nine key commodity groups. One experienced international network.</p></div><ProductCatalogue /></section><ContactCTA /></Shell>; }
 
-export function ProductDetailPage() { const p = products[3]; return <Shell><section className="product-detail wrap"><div className="breadcrumb"><Link href="/products">Products</Link><span>/</span><span>Copper Cathode</span></div><div className="product-detail-head"><div><Label>METALS / 04</Label><h1>COPPER<br />CATHODE.</h1></div><p>Copper cathode is a refined form of copper produced by electrowinning. It is a high-purity metal used across a broad range of industrial applications.</p></div><div className="detail-image" style={{ backgroundImage: `url('${p.image}')` }}><span>REFINED COPPER / GLOBAL SUPPLY</span></div><div className="detail-copy"><div><Label>PRODUCT OVERVIEW</Label></div><div><h2>A FOUNDATION OF MODERN INDUSTRY.</h2><p>Copper cathode is valued for its purity and serves as an important raw material for electrical, manufacturing and construction supply chains. Bilotta Traders connects qualified counterparties through its international trading network.</p><p>This prototype intentionally presents only product information supported by Bilotta’s current catalogue. Commercial specifications, origin, quantity and delivery terms are confirmed during a qualified inquiry.</p><Button href="/contact?product=copper-cathode">INQUIRE ABOUT COPPER</Button></div></div></section><section className="related wrap"><div className="section-heading"><div><Label>RELATED COMMODITIES</Label><h2>EXPLORE METALS</h2></div></div><div className="related-grid">{[products[2], products[5], products[6]].map((item, i) => <ProductCard key={item.slug} product={item} index={i} />)}</div></section><ContactCTA /></Shell>; }
+export function ProductDetailPage({ slug }: { slug: string }) {
+  const product = products.find(item => item.slug === slug);
+  if (!product) return null;
+  const productIndex = products.findIndex(item => item.slug === slug);
+  const related = product.related.map(relatedSlug => products.find(item => item.slug === relatedSlug)).filter((item): item is Product => Boolean(item));
+  return <Shell><section className="product-detail wrap">
+    <div className="breadcrumb"><Link href="/products">Products</Link><span aria-hidden="true">/</span><span>{product.name}</span></div>
+    <Link className="back-link" href="/products">← Back to Products</Link>
+    <div className="product-detail-hero"><div className="product-detail-intro"><Label>{product.category.toUpperCase()} / {String(productIndex + 1).padStart(2, "0")}</Label><h1>{product.name}.</h1><p>{product.description}</p><Button href={`/contact?product=${product.slug}`}>REQUEST AN INQUIRY</Button></div><figure className="detail-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 900px) calc(100vw - 40px), 55vw" priority /><figcaption>{product.category.toUpperCase()} / GLOBAL SUPPLY</figcaption></figure></div>
+    <div className="detail-copy"><div><Label>PRODUCT OVERVIEW</Label></div><div><h2>{product.statement}</h2>{product.overview.map(paragraph => <p key={paragraph}>{paragraph}</p>)}<div className="detail-facts"><div><span>PRODUCT CATEGORY</span><strong>{product.category}</strong></div><div><span>APPLICATIONS</span><strong>{product.applications}</strong></div><div><span>SUPPLY SCOPE</span><strong>International commodity trading and reselling</strong></div><div><span>COMMERCIAL TERMS</span><strong>Confirmed upon qualified inquiry</strong></div></div><p className="detail-note">Specifications, origin, quantity and delivery terms are confirmed during a qualified inquiry.</p><Button href={`/contact?product=${product.slug}`}>REQUEST AN INQUIRY</Button></div></div>
+  </section><section className="related wrap"><div className="section-heading"><div><Label>RELATED COMMODITIES</Label><h2>CONTINUE EXPLORING.</h2></div></div><div className="related-grid">{related.map((item, index) => <ProductCard compact key={item.slug} product={item} index={index} />)}</div></section><ContactCTA /></Shell>;
+}
 
-export function AboutPage() { return <Shell darkHeader><PageHero label="ABOUT / BILOTTA TRADERS GROUP" title={<>TRUST BUILT<br />ACROSS BORDERS.</>} intro="An international commodity trading and reselling firm connecting supply with global market demand." image="https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&w=2000&q=85" /><section className="about-story wrap"><div><Label>COMPANY OVERVIEW</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Headquartered in Toronto, Bilotta Traders Group maintains a presence through branch offices in Dubai, Switzerland and Germany.</p><p>Its product portfolio spans fuels, sugar, fertilizers, copper, aluminum and steel. The leadership team combines business, commodities and operational experience to support clients across international markets.</p><p>The company emphasizes long-term relationships, transparency, responsive service and the practical coordination required for cross-border commodity transactions.</p></div></section><section className="reach"><div className="wrap"><Label>GLOBAL REACH</Label><div className="reach-grid">{["Toronto / Headquarters", "Dubai / Branch Office", "Switzerland / Branch Office", "Germany / Branch Office"].map((x, i) => <div key={x}><span>0{i + 1}</span><h3>{x.split(" / ")[0]}</h3><p>{x.split(" / ")[1]}</p></div>)}</div></div></section><Leadership /><ContactCTA /></Shell>; }
+export function AboutPage() { return <Shell darkHeader><PageHero label="ABOUT / BILOTTA TRADERS GROUP" title={<>TRUST BUILT<br />ACROSS BORDERS.</>} intro="An international commodity trading and reselling firm connecting supply with global market demand." image="/images/about.webp" /><section className="about-story wrap"><div><Label>COMPANY OVERVIEW</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Headquartered in Toronto, Bilotta Traders Group maintains a presence through branch offices in Dubai, Switzerland and Germany.</p><p>Its product portfolio spans fuels, sugar, fertilizers, copper, aluminum and steel. The leadership team combines business, commodities and operational experience to support clients across international markets.</p><p>The company emphasizes long-term relationships, transparency, responsive service and the practical coordination required for cross-border commodity transactions.</p></div></section><section className="reach"><div className="wrap"><Label>GLOBAL REACH</Label><div className="reach-grid">{["Toronto / Headquarters", "Dubai / Branch Office", "Switzerland / Branch Office", "Germany / Branch Office"].map((x, i) => <div key={x}><span>0{i + 1}</span><h3>{x.split(" / ")[0]}</h3><p>{x.split(" / ")[1]}</p></div>)}</div></div></section><Leadership /><ContactCTA /></Shell>; }
 
-export function TransactionPage() { return <Shell><section className="transaction-head wrap"><Label>TRANSACTION PROCESS</Label><h1>DEFINED TERMS.<br />CLEAR EXECUTION.</h1><div className="transaction-intro"><h2>Seller’s Transaction Procedure Terms & Conditions</h2><p>To initiate a transaction, an official signed and sealed End Buyer’s LOI in PDF format is required. The following procedure is mandatory and non-negotiable.</p></div></section><section className="timeline wrap">{processSteps.map((step, i) => <div className="timeline-row" key={step}><span className="timeline-number">{String(i + 1).padStart(2, "0")}</span><span className="timeline-tag">{i < 5 ? "DOCUMENTATION" : i < 9 ? "BANKING & VERIFICATION" : "SHIPMENT"}</span><p>{step}</p></div>)}</section><ContactCTA /></Shell>; }
+const processGroups = [
+  { label: "DOCUMENTATION", range: "STEPS 01—05", steps: processSteps.slice(0, 5), offset: 0 },
+  { label: "BANKING & VERIFICATION", range: "STEPS 06—09", steps: processSteps.slice(5, 9), offset: 5 },
+  { label: "SHIPMENT", range: "STEP 10", steps: processSteps.slice(9), offset: 9 },
+];
 
-function ContactForm() { return <form className="contact-form" onSubmit={e => e.preventDefault()}><fieldset><legend>PLEASE INDICATE WHICH BEST EXPLAINS YOU</legend><div className="radio-row">{["End Buyer", "Buyer Intermediary", "Supplier", "Other"].map(x => <label key={x}><input type="radio" name="type" /> <span>{x}</span></label>)}</div></fieldset><div className="form-grid"><label>FULL NAME<input required placeholder="Enter your full name" /></label><label>EMAIL ADDRESS<input required type="email" placeholder="name@company.com" /></label><label>COUNTRY<input placeholder="Enter your country" /></label><label>PHONE NUMBER<input type="tel" placeholder="Country code + number" /></label><label>SELECT PRODUCT<select defaultValue=""><option value="" disabled>Choose a commodity</option>{products.map(p => <option key={p.slug}>{p.name}</option>)}</select></label><label>COMPANY<input placeholder="Enter your company name" /></label><label>QUANTITY<input placeholder="Total and per month" /></label><label>DESTINATION PORT<input placeholder="Enter destination port" /></label><label>PRICE<input placeholder="Target price, if applicable" /></label><label>DURATION OF CONTRACT<input placeholder="Contract duration" /></label><label className="full">PREFERRED PAYMENT INSTRUMENT<input placeholder="Enter preferred instrument" /></label><label className="full">MESSAGE<textarea rows={5} placeholder="Tell us about your requirement" /></label></div><button className="button" type="submit">SUBMIT INQUIRY <Arrow /></button></form>; }
+export function TransactionPage() { return <Shell><section className="transaction-head wrap"><Label>TRANSACTION PROCESS</Label><h1>DEFINED TERMS.<br />CLEAR EXECUTION.</h1><div className="transaction-intro"><h2>Seller’s Transaction Procedure Terms & Conditions</h2><p>To initiate a transaction, an official signed and sealed End Buyer’s LOI in PDF format is required. The following procedure is mandatory and non-negotiable.</p></div></section><section className="timeline wrap">{processGroups.map(group => <section className="timeline-group" key={group.label} aria-labelledby={`group-${group.offset}`}><header><span id={`group-${group.offset}`}>{group.label}</span><small>{group.range}</small></header>{group.steps.map((step, i) => <article className="timeline-row" key={step.title}><span className="timeline-number">{String(group.offset + i + 1).padStart(2, "0")}</span><div><h2>{step.title}</h2><p>{step.description}</p></div></article>)}</section>)}<div className="timeline-cta"><Button href="/contact">START AN INQUIRY</Button></div></section></Shell>; }
+
+function ContactForm() {
+  const [submitted, setSubmitted] = useState(false);
+  const [product, setProduct] = useState("");
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("product");
+    if (!requested || !products.some(item => item.slug === requested)) return;
+    const timer = window.setTimeout(() => setProduct(requested), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return <form className="contact-form" onSubmit={e => { e.preventDefault(); setSubmitted(true); requestAnimationFrame(() => statusRef.current?.focus()); }}>
+    <fieldset className="form-group"><legend><span>01</span> YOUR ROLE</legend><div className="radio-row">{["End Buyer", "Buyer Intermediary", "Supplier", "Other"].map((x, i) => <label key={x}><input type="radio" name="type" required={i === 0} /> <span>{x}</span></label>)}</div></fieldset>
+    <fieldset className="form-group"><legend><span>02</span> CONTACT DETAILS</legend><div className="form-grid"><label>FULL NAME<input required name="fullName" autoComplete="name" placeholder="Enter your full name" /></label><label>EMAIL ADDRESS<input required name="email" autoComplete="email" type="email" placeholder="name@company.com" /></label><label>COUNTRY<input name="country" autoComplete="country-name" placeholder="Enter your country" /></label><label>PHONE NUMBER<input name="phone" autoComplete="tel" type="tel" placeholder="Country code + number" /></label><label className="full">COMPANY<input name="company" autoComplete="organization" placeholder="Enter your company name" /></label></div></fieldset>
+    <fieldset className="form-group"><legend><span>03</span> COMMODITY REQUIREMENT</legend><div className="form-grid"><label>SELECT PRODUCT<select name="product" value={product} onChange={event => setProduct(event.target.value)}><option value="">Choose a commodity</option>{products.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></label><label>QUANTITY IN TOTAL AND PER MONTH?<input name="quantity" placeholder="Total and per month" /></label><label>DESTINATION PORT?<input name="destinationPort" placeholder="Enter destination port" /></label><label>PRICE<input name="price" placeholder="Target price, if applicable" /></label><label>DURATION OF CONTRACT?<input name="contractDuration" placeholder="Contract duration" /></label><label>PREFERRED PAYMENT INSTRUMENT?<input name="paymentInstrument" placeholder="Enter preferred instrument" /></label></div></fieldset>
+    <fieldset className="form-group form-message"><legend><span>04</span> MESSAGE</legend><label>MESSAGE<textarea name="message" rows={5} placeholder="Tell us about your requirement" /></label></fieldset>
+    <button className="button" type="submit">SUBMIT INQUIRY <Arrow /></button>{submitted && <p ref={statusRef} tabIndex={-1} className="form-success" role="status">Thank you. Your inquiry has been captured in this design prototype.</p>}
+  </form>;
+}
 
 export function ContactPage() { return <Shell><section className="contact-page wrap"><div className="contact-left"><Label>CONTACT</Label><h1>LET&apos;S TALK<br />COMMODITIES.</h1><p>Tell us what you need, where it is going, and the commercial context. Our team will review your inquiry.</p><div className="contact-facts"><div><span>ADDRESS</span><p>133 Bronte Road — 727<br />Oakville, Ontario L6L 0H2<br />Canada</p></div><div><span>TELEPHONE</span><a href="tel:+12892421143">+1 (289) 242-1143</a></div><div><span>EMAIL</span><a href="mailto:info@bilottatraders.com">info@bilottatraders.com</a></div></div></div><div className="contact-right"><h2>WRITE A MESSAGE</h2><ContactForm /></div></section></Shell>; }
