@@ -1,14 +1,39 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { leadership, processSteps, products, type Product } from "./data";
 
 // Native anchors keep every route usable even if client-side hydration is slow
 // or unavailable in a review browser.
-function Link({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
-  return <a href={href} {...props}>{children}</a>;
+let navigationTimer: number | undefined;
+
+function Link({ href, children, onClick, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  const router = useRouter();
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    onClick?.(event);
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !href.startsWith("/") || props.target === "_blank") return;
+    const target = new URL(href, window.location.href);
+    if (target.origin !== window.location.origin) return;
+    if (target.pathname === window.location.pathname && target.search === window.location.search && target.hash) return;
+    event.preventDefault();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (target.pathname === window.location.pathname && target.search === window.location.search) {
+      window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+      return;
+    }
+    if (navigationTimer) window.clearTimeout(navigationTimer);
+    const currentLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.sessionStorage.setItem(`bilotta-scroll:${currentLocation}`, String(window.scrollY));
+    window.sessionStorage.setItem("bilotta-navigation", "push");
+    document.documentElement.classList.add("route-exiting");
+    navigationTimer = window.setTimeout(() => {
+      router.push(href, { scroll: true });
+      navigationTimer = undefined;
+    }, reducedMotion ? 0 : 170);
+  };
+  return <a href={href} onClick={handleClick} {...props}>{children}</a>;
 }
 
 const nav = [
@@ -26,7 +51,23 @@ export function Header({ dark = false }: { dark?: boolean }) {
   const pathname = usePathname();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { const fn = () => setScrolled(window.scrollY > 32); fn(); window.addEventListener("scroll", fn); return () => window.removeEventListener("scroll", fn); }, []);
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        const next = window.scrollY > 32;
+        setScrolled(current => current === next ? current : next);
+        frame = 0;
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", update);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = open ? "hidden" : previousOverflow;
@@ -45,7 +86,7 @@ export function Header({ dark = false }: { dark?: boolean }) {
   }, [open]);
   const isActive = (href: string) => href === "/products" ? pathname.startsWith("/products") : pathname === href;
   return <>
-    <header className={`header ${(dark && !scrolled) ? "header-overlay" : ""} ${scrolled ? "header-scrolled" : ""}`}>
+    <header className={`header ${dark ? "header-dark-page" : ""} ${(dark && !scrolled) ? "header-overlay" : ""} ${scrolled ? "header-scrolled" : ""}`}>
       <Mark light={dark && !scrolled} />
       <nav className="desktop-nav" aria-label="Primary">{nav.map(([label, href], i) => <Link className={`${i === 4 ? "nav-cta" : ""} ${isActive(href) ? "is-active" : ""}`} aria-current={isActive(href) ? "page" : undefined} key={href} href={href}>{label}</Link>)}</nav>
       <button ref={menuButtonRef} className="menu-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} aria-controls="mobile-navigation"><span /><span /></button>
@@ -63,7 +104,7 @@ function Label({ children }: { children: React.ReactNode }) { return <div classN
 function Button({ href, children, outline = false }: { href: string; children: React.ReactNode; outline?: boolean }) { return <Link className={`button ${outline ? "button-outline" : ""}`} href={href}>{children}<Arrow /></Link>; }
 
 function ProductCard({ product, index, compact = false }: { product: Product; index: number; compact?: boolean }) {
-  return <Link href={`/products/${product.slug}`} aria-label={`View product: ${product.name}`} className={`product-card ${compact ? "product-card-compact" : ""}`}>
+  return <Link href={`/products/${product.slug}`} aria-label={`View product: ${product.name}`} className={`product-card scroll-reveal ${compact ? "product-card-compact" : ""}`}>
     <div className="product-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes={compact ? "(max-width: 600px) calc(100vw - 40px), (max-width: 900px) 50vw, 33vw" : "(max-width: 600px) calc(100vw - 40px), (max-width: 900px) 50vw, 33vw"} loading={index === 0 ? "eager" : "lazy"} /><span className="product-index">{String(index + 1).padStart(2, "0")}</span></div>
     <div className="product-copy"><span>{product.category}</span><h3>{product.name}</h3><p>{product.description}</p><small>View product</small><Arrow /></div>
   </Link>;
@@ -77,19 +118,19 @@ function HomeCommodities() {
   const featured = products.slice(0, 6);
   const [activeSlug, setActiveSlug] = useState(featured[0].slug);
   const active = featured.find(product => product.slug === activeSlug) ?? featured[0];
-  return <div className="featured-products">
+  return <div className="featured-products scroll-reveal">
     <div className="featured-product-list">{featured.map((product, index) => <Link key={product.slug} href={`/products/${product.slug}`} className={`featured-product-row ${active.slug === product.slug ? "is-active" : ""}`} onPointerEnter={() => setActiveSlug(product.slug)} onFocus={() => setActiveSlug(product.slug)}>
       <div className="featured-mobile-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 600px) calc(100vw - 40px), 90vw" /></div>
       <span className="featured-index">{String(index + 1).padStart(2, "0")}</span>
       <div><small>{product.category}</small><h3>{product.name}</h3><p>{product.description}</p></div>
       <span className="featured-action">View product <Arrow /></span>
     </Link>)}</div>
-    <div className="featured-product-preview" aria-live="polite"><div className="featured-preview-image" key={active.slug}><Image src={active.image} alt={`${active.name} commodity`} fill sizes="(max-width: 1100px) 42vw, 560px" priority /></div><div className="featured-preview-caption"><span>{active.category}</span><strong>{active.name}</strong></div></div>
+    <div className="featured-product-preview" aria-live="polite"><div className="featured-preview-image">{featured.map((product, index) => <Image className={active.slug === product.slug ? "is-active" : ""} key={product.slug} src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 1100px) 42vw, 560px" loading={index === 0 ? "eager" : "lazy"} />)}</div><div className="featured-preview-caption"><span>{active.category}</span><strong>{active.name}</strong></div></div>
   </div>;
 }
 
 function Leadership() {
-  return <section className="leadership wrap"><Label>LEADERSHIP</Label><div className="leadership-head"><h2>EXPERIENCE AT<br />EVERY LEVEL.</h2><p>Guided by professionals with deep experience in international business, commodities and operations.</p></div><div className="leadership-list">{leadership.map((person, i) => <div className="leader" key={person.name}><span>0{i + 1}</span><h3>{person.name}</h3><p>{person.role}</p><a href={`mailto:${person.email}`}>{person.email}<Arrow /></a></div>)}</div></section>;
+  return <section className="leadership wrap"><Label>LEADERSHIP</Label><div className="leadership-head scroll-reveal"><h2>EXPERIENCE AT<br />EVERY LEVEL.</h2><p>Guided by professionals with deep experience in international business, commodities and operations.</p></div><div className="leadership-list scroll-reveal">{leadership.map((person, i) => <div className="leader" key={person.name}><span>0{i + 1}</span><h3>{person.name}</h3><p>{person.role}</p><a href={`mailto:${person.email}`}>{person.email}<Arrow /></a></div>)}</div></section>;
 }
 
 function Network() {
@@ -97,7 +138,27 @@ function Network() {
   return <section className="network"><div className="wrap network-head"><Label>02 / GLOBAL NETWORK</Label><h2>CONNECTED ACROSS KEY<br />INTERNATIONAL MARKETS.</h2></div><div className="map wrap"><div className="map-grid" />{places.map(([name, x, y]) => <div key={name} className="map-point" style={{ left: x, top: y }}><i /><span>{name}</span></div>)}<p className="map-note">43°27′N — 79°41′W<br />GLOBAL TRADE OPERATIONS</p></div></section>;
 }
 
-function ContactCTA() { return <section className="contact-cta"><div className="wrap"><Label>CONTACT</Label><h2>LET&apos;S DISCUSS YOUR<br />COMMODITY REQUIREMENTS.</h2><Button href="/contact">START A CONVERSATION</Button></div></section>; }
+function ContactCTA({ id }: { id?: string }) { return <section id={id} className="contact-cta"><div className="wrap scroll-reveal"><Label>CONTACT</Label><h2>LET&apos;S DISCUSS YOUR<br />COMMODITY REQUIREMENTS.</h2><Button href="/contact">START A CONVERSATION</Button></div></section>; }
+
+function ScrollReveals({ pathname }: { pathname: string }) {
+  useEffect(() => {
+    const items = Array.from(document.querySelectorAll<HTMLElement>(".scroll-reveal"));
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
+      items.forEach(item => item.classList.add("is-visible"));
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.14, rootMargin: "0px 0px -8% 0px" });
+    items.forEach(item => observer.observe(item));
+    return () => observer.disconnect();
+  }, [pathname]);
+  return null;
+}
 
 function Newsletter() {
   const [submitted, setSubmitted] = useState(false);
@@ -106,18 +167,46 @@ function Newsletter() {
 
 export function Footer() { return <footer><div className="wrap footer-grid"><div className="footer-brand"><Mark light /><p>Global commodity trading.<br />Built on trust. Connected worldwide.</p></div><div><h4>COMPANY</h4><Link href="/">Home</Link><Link href="/about">About</Link><Link href="/products">Products</Link><Link href="/transaction-process">Transaction Process</Link><Link href="/contact">Contact</Link><a href="https://bilottatraders.com/video-blog/">Video Blog</a></div><div><h4>PRODUCTS</h4>{products.map(p => <Link key={p.slug} href={`/products/${p.slug}`}>{p.name}</Link>)}</div><div><h4>CONTACT</h4><p>133 Bronte Road — 727<br />Oakville, Ontario L6L 0H2<br />Canada</p><a href="tel:+12892421143">+1 (289) 242-1143</a><a href="mailto:info@bilottatraders.com">info@bilottatraders.com</a></div></div><div className="wrap footer-bottom"><span>© 2026 Bilotta Traders. All rights reserved.</span><a href="https://bilottatraders.com/privacy-policy/">Privacy Policy</a><span>TORONTO · DUBAI · SWITZERLAND · GERMANY</span></div></footer>; }
 
-function Shell({ children, darkHeader = false }: { children: React.ReactNode; darkHeader?: boolean }) { return <><Header dark={darkHeader} /><main>{children}</main><Newsletter /><Footer /></>; }
+function Shell({ children, darkHeader = false }: { children: React.ReactNode; darkHeader?: boolean }) {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (document.documentElement.dataset.bilottaHistory === "ready") return;
+    document.documentElement.dataset.bilottaHistory = "ready";
+    window.history.scrollRestoration = "manual";
+    window.sessionStorage.setItem("bilotta-current-location", `${window.location.pathname}${window.location.search}${window.location.hash}`);
+    window.addEventListener("popstate", () => {
+      const previousLocation = window.sessionStorage.getItem("bilotta-current-location");
+      if (previousLocation) window.sessionStorage.setItem(`bilotta-scroll:${previousLocation}`, String(window.scrollY));
+      window.sessionStorage.setItem("bilotta-navigation", "pop");
+      window.sessionStorage.setItem("bilotta-current-location", `${window.location.pathname}${window.location.search}${window.location.hash}`);
+    });
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.remove("route-exiting");
+    const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const navigationType = window.sessionStorage.getItem("bilotta-navigation");
+    window.sessionStorage.removeItem("bilotta-navigation");
+    if (navigationType === "push") {
+      window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 180);
+    } else if (navigationType === "pop") {
+      const restoredPosition = Number(window.sessionStorage.getItem(`bilotta-scroll:${locationKey}`) ?? 0);
+      window.setTimeout(() => window.scrollTo({ top: restoredPosition, behavior: "auto" }), 120);
+    }
+    window.sessionStorage.setItem("bilotta-current-location", locationKey);
+  }, [pathname]);
+  return <><Header dark={darkHeader} /><main key={pathname} className="page-transition">{children}</main><Newsletter /><Footer /><ScrollReveals pathname={pathname} /></>;
+}
 
 export function HomePage() { return <Shell darkHeader>
-  <section className="hero"><div className="hero-image" /><div className="hero-grid" /><div className="hero-content wrap"><div><Label>BILOTTA TRADERS GROUP</Label><h1>GLOBAL<br />COMMODITY<br />TRADING.</h1><p>Built on Trust. Connected Worldwide.</p><div className="hero-actions"><Button href="/products">EXPLORE PRODUCTS</Button><Button href="/contact" outline>CONTACT US</Button></div></div></div><div className="hero-cities wrap">{["TORONTO", "DUBAI", "SWITZERLAND", "GERMANY"].map((x, i) => <span key={x}><i>0{i + 1}</i>{x}</span>)}</div></section>
-  <section className="commodities wrap"><div className="section-heading"><div><Label>01 / COMMODITIES</Label><h2>COMMODITIES ACROSS<br />GLOBAL MARKETS</h2></div><p>Connecting buyers and suppliers through an established international network and a focused portfolio of essential commodities.</p></div><HomeCommodities /><div className="section-end"><Button href="/products" outline>VIEW FULL CATALOGUE</Button></div></section>
+  <section className="hero"><div className="hero-image"><Image src="/images/hero.webp" alt="" fill priority sizes="100vw" /></div><div className="hero-grid" /><div className="hero-content wrap"><div><Label>BILOTTA TRADERS GROUP</Label><h1>GLOBAL<br />COMMODITY<br />TRADING.</h1><p>Built on Trust. Connected Worldwide.</p><div className="hero-actions"><Button href="/products">EXPLORE PRODUCTS</Button><Button href="/contact" outline>CONTACT US</Button></div></div></div><div className="hero-cities wrap">{["TORONTO", "DUBAI", "SWITZERLAND", "GERMANY"].map((x, i) => <span key={x}><i>0{i + 1}</i>{x}</span>)}</div></section>
+  <section id="products" className="commodities wrap"><div className="section-heading scroll-reveal"><div><Label>01 / COMMODITIES</Label><h2>COMMODITIES ACROSS<br />GLOBAL MARKETS</h2></div><p>Connecting buyers and suppliers through an established international network and a focused portfolio of essential commodities.</p></div><HomeCommodities /><div className="section-end scroll-reveal"><Button href="/products" outline>VIEW FULL CATALOGUE</Button></div></section>
   <Network />
-  <section className="about-preview"><div className="wrap about-grid"><div><Label>03 / ABOUT</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Bilotta Traders Group is a globally recognized commodity trading and reselling firm headquartered in Toronto, Canada, with branch offices in Dubai, Switzerland and Germany.</p><p>The company serves clients internationally with a broad professional network, focused service and experienced leadership across the commodities industry.</p><Button href="/about" outline>DISCOVER BILOTTA</Button></div></div></section>
-  <section className="process-preview wrap"><div className="section-heading"><div><Label>04 / TRANSACTION PROCESS</Label><h2>CLARITY AT<br />EVERY STAGE.</h2></div><p>A defined, mandatory procedure gives buyers and sellers a clear path from the initial ICPO or LOI through bank confirmation and shipment.</p></div><div className="process-short">{processSteps.slice(0, 4).map((step, i) => <div key={step.title}><span>0{i + 1}</span><h3>{step.title}</h3><p>{step.description}</p></div>)}</div><Button href="/transaction-process">VIEW COMPLETE PROCESS</Button></section>
-  <ContactCTA />
+  <section id="about" className="about-preview"><div className="wrap about-grid scroll-reveal"><div><Label>03 / ABOUT</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Bilotta Traders Group is a globally recognized commodity trading and reselling firm headquartered in Toronto, Canada, with branch offices in Dubai, Switzerland and Germany.</p><p>The company serves clients internationally with a broad professional network, focused service and experienced leadership across the commodities industry.</p><Button href="/about" outline>DISCOVER BILOTTA</Button></div></div></section>
+  <section id="transaction-process" className="process-preview wrap"><div className="section-heading scroll-reveal"><div><Label>04 / TRANSACTION PROCESS</Label><h2>CLARITY AT<br />EVERY STAGE.</h2></div><p>A defined, mandatory procedure gives buyers and sellers a clear path from the initial ICPO or LOI through bank confirmation and shipment.</p></div><div className="process-short scroll-reveal">{processSteps.slice(0, 4).map((step, i) => <div key={step.title}><span>0{i + 1}</span><h3>{step.title}</h3><p>{step.description}</p></div>)}</div><Button href="/transaction-process">VIEW COMPLETE PROCESS</Button></section>
+  <ContactCTA id="contact" />
  </Shell>; }
 
-function PageHero({ label, title, intro, image }: { label: string; title: React.ReactNode; intro: string; image?: string }) { return <section className="page-hero"><div className="page-hero-image" style={image ? { backgroundImage: `url('${image}')` } : undefined} /><div className="wrap page-hero-inner"><Label>{label}</Label><h1>{title}</h1><p>{intro}</p></div></section>; }
+function PageHero({ label, title, intro, image }: { label: string; title: React.ReactNode; intro: string; image?: string }) { return <section className="page-hero"><div className="page-hero-image">{image && <Image src={image} alt="" fill priority sizes="100vw" />}</div><div className="wrap page-hero-inner"><Label>{label}</Label><h1>{title}</h1><p>{intro}</p></div></section>; }
 
 export function ProductsPage() { return <Shell darkHeader><PageHero label="PRODUCTS / 01—09" title={<>GLOBAL<br />COMMODITIES.</>} intro="A focused portfolio spanning energy, agriculture and industrial metals." image="/images/hero.webp" /><section className="catalogue wrap"><div className="catalogue-meta"><Label>OUR CATALOGUE</Label><p>Nine key commodity groups. One experienced international network.</p></div><ProductCatalogue /></section><ContactCTA /></Shell>; }
 
@@ -140,12 +229,12 @@ export function ProductDetailPage({ slug }: { slug: string }) {
       <figure className="detail-image"><Image src={product.image} alt={`${product.name} commodity`} fill sizes="(max-width: 900px) 100vw, 58vw" loading="eager" /><figcaption>{product.category.toUpperCase()} / GLOBAL COMMODITY</figcaption></figure>
     </section>
 
-    <section className="product-overview wrap">
+    <section className="product-overview wrap scroll-reveal">
       <Label>PRODUCT OVERVIEW</Label>
       <div className="product-overview-grid"><h2>{product.statement}</h2><p>{product.overview[0]}</p></div>
     </section>
 
-    <section className="product-facts wrap" aria-label={`${product.name} commercial information`}>
+    <section className="product-facts wrap scroll-reveal" aria-label={`${product.name} commercial information`}>
       <div><span>COMMODITY</span><strong>{product.name}</strong></div>
       <div><span>CATEGORY</span><strong>{product.category}</strong></div>
       <div><span>APPLICATION</span><strong>{product.applications}</strong></div>
@@ -153,23 +242,23 @@ export function ProductDetailPage({ slug }: { slug: string }) {
       <div><span>COMMERCIAL TERMS</span><strong>Confirmed during inquiry</strong></div>
     </section>
 
-    <section className="product-visual-story wrap">
+    <section className="product-visual-story wrap scroll-reveal">
       <figure><Image src={product.image} alt={`Close-up view of ${product.name}`} fill sizes="(max-width: 900px) calc(100vw - 40px), 72vw" /></figure>
       <div><Label>COMMODITY CONTEXT</Label><h2>BUILT AROUND QUALIFIED COMMERCIAL REQUIREMENTS.</h2><p>{product.overview[1] ?? product.overview[0]}</p><p className="detail-note">Specifications, origin, quantity and delivery terms are confirmed during a qualified inquiry.</p></div>
     </section>
 
-    <section className="product-inquiry"><div className="wrap product-inquiry-inner"><div><Label>COMMERCIAL INQUIRY</Label><h2>INTERESTED IN {product.name.toUpperCase()} SUPPLY?</h2><p>Share your commodity requirement with the Bilotta Traders team for commercial review.</p></div><Button href={`/contact?product=${product.slug}`}>START AN INQUIRY</Button></div></section>
+    <section className="product-inquiry"><div className="wrap product-inquiry-inner scroll-reveal"><div><Label>COMMERCIAL INQUIRY</Label><h2>INTERESTED IN {product.name.toUpperCase()} SUPPLY?</h2><p>Share your commodity requirement with the Bilotta Traders team for commercial review.</p></div><Button href={`/contact?product=${product.slug}`}>START AN INQUIRY</Button></div></section>
 
-    <section className="related wrap"><div className="related-heading"><Label>RELATED COMMODITIES</Label><h2>EXPLORE THE PORTFOLIO.</h2></div><div className="related-grid">{related.map((item, index) => <ProductCard compact key={item.slug} product={item} index={index} />)}</div></section>
+    <section className="related wrap"><div className="related-heading scroll-reveal"><Label>RELATED COMMODITIES</Label><h2>EXPLORE THE PORTFOLIO.</h2></div><div className="related-grid">{related.map((item, index) => <ProductCard compact key={item.slug} product={item} index={index} />)}</div></section>
 
-    <nav className="product-sequence wrap" aria-label="Product navigation">
+    <nav className="product-sequence wrap scroll-reveal" aria-label="Product navigation">
       <div>{previous && <Link href={`/products/${previous.slug}`}><small>PREVIOUS COMMODITY</small><strong>← {previous.name}</strong></Link>}</div>
       <div>{next && <Link href={`/products/${next.slug}`}><small>NEXT COMMODITY</small><strong>{next.name} →</strong></Link>}</div>
     </nav>
   </Shell>;
 }
 
-export function AboutPage() { return <Shell darkHeader><PageHero label="ABOUT / BILOTTA TRADERS GROUP" title={<>TRUST BUILT<br />ACROSS BORDERS.</>} intro="An international commodity trading and reselling firm connecting supply with global market demand." image="/images/about.webp" /><section className="about-story wrap"><div><Label>COMPANY OVERVIEW</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Headquartered in Toronto, Bilotta Traders Group maintains a presence through branch offices in Dubai, Switzerland and Germany.</p><p>Its product portfolio spans fuels, sugar, fertilizers, copper, aluminum and steel. The leadership team combines business, commodities and operational experience to support clients across international markets.</p><p>The company emphasizes long-term relationships, transparency, responsive service and the practical coordination required for cross-border commodity transactions.</p></div></section><section className="reach"><div className="wrap"><Label>GLOBAL REACH</Label><div className="reach-grid">{["Toronto / Headquarters", "Dubai / Branch Office", "Switzerland / Branch Office", "Germany / Branch Office"].map((x, i) => <div key={x}><span>0{i + 1}</span><h3>{x.split(" / ")[0]}</h3><p>{x.split(" / ")[1]}</p></div>)}</div></div></section><Leadership /><ContactCTA /></Shell>; }
+export function AboutPage() { return <Shell darkHeader><PageHero label="ABOUT / BILOTTA TRADERS GROUP" title={<>TRUST BUILT<br />ACROSS BORDERS.</>} intro="An international commodity trading and reselling firm connecting supply with global market demand." image="/images/about.webp" /><section className="about-story wrap scroll-reveal"><div><Label>COMPANY OVERVIEW</Label><h2>GLOBAL RELATIONSHIPS.<br />RELIABLE SUPPLY.</h2></div><div><p className="lead">Headquartered in Toronto, Bilotta Traders Group maintains a presence through branch offices in Dubai, Switzerland and Germany.</p><p>Its product portfolio spans fuels, sugar, fertilizers, copper, aluminum and steel. The leadership team combines business, commodities and operational experience to support clients across international markets.</p><p>The company emphasizes long-term relationships, transparency, responsive service and the practical coordination required for cross-border commodity transactions.</p></div></section><section className="reach"><div className="wrap scroll-reveal"><Label>GLOBAL REACH</Label><div className="reach-grid">{["Toronto / Headquarters", "Dubai / Branch Office", "Switzerland / Branch Office", "Germany / Branch Office"].map((x, i) => <div key={x}><span>0{i + 1}</span><h3>{x.split(" / ")[0]}</h3><p>{x.split(" / ")[1]}</p></div>)}</div></div></section><Leadership /><ContactCTA /></Shell>; }
 
 const processGroups = [
   { label: "DOCUMENTATION", range: "STEPS 01—05", steps: processSteps.slice(0, 5), offset: 0 },
@@ -177,7 +266,7 @@ const processGroups = [
   { label: "SHIPMENT", range: "STEP 10", steps: processSteps.slice(9), offset: 9 },
 ];
 
-export function TransactionPage() { return <Shell><section className="transaction-head wrap"><Label>TRANSACTION PROCESS</Label><h1>DEFINED TERMS.<br />CLEAR EXECUTION.</h1><div className="transaction-intro"><h2>Seller’s Transaction Procedure Terms & Conditions</h2><p>To initiate a transaction, an official signed and sealed End Buyer’s LOI in PDF format is required. The following procedure is mandatory and non-negotiable.</p></div></section><section className="timeline wrap">{processGroups.map(group => <section className="timeline-group" key={group.label} aria-labelledby={`group-${group.offset}`}><header><span id={`group-${group.offset}`}>{group.label}</span><small>{group.range}</small></header>{group.steps.map((step, i) => <article className="timeline-row" key={step.title}><span className="timeline-number">{String(group.offset + i + 1).padStart(2, "0")}</span><div><h2>{step.title}</h2><p>{step.description}</p></div></article>)}</section>)}<div className="timeline-cta"><Button href="/contact">START AN INQUIRY</Button></div></section></Shell>; }
+export function TransactionPage() { return <Shell><section className="transaction-head wrap"><Label>TRANSACTION PROCESS</Label><h1>DEFINED TERMS.<br />CLEAR EXECUTION.</h1><div className="transaction-intro"><h2>Seller’s Transaction Procedure Terms & Conditions</h2><p>To initiate a transaction, an official signed and sealed End Buyer’s LOI in PDF format is required. The following procedure is mandatory and non-negotiable.</p></div></section><section className="timeline wrap">{processGroups.map(group => <section className="timeline-group scroll-reveal" key={group.label} aria-labelledby={`group-${group.offset}`}><header><span id={`group-${group.offset}`}>{group.label}</span><small>{group.range}</small></header>{group.steps.map((step, i) => <article className="timeline-row" key={step.title}><span className="timeline-number">{String(group.offset + i + 1).padStart(2, "0")}</span><div><h2>{step.title}</h2><p>{step.description}</p></div></article>)}</section>)}<div className="timeline-cta scroll-reveal"><Button href="/contact">START AN INQUIRY</Button></div></section></Shell>; }
 
 function ContactForm() {
   const [submitted, setSubmitted] = useState(false);
